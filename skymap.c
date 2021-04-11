@@ -36,7 +36,7 @@ struct map {
   double h,sra,sde,sazi,salt;
   float alt,timezone;
   float fw,fh,agelimit;
-  int level,grid,site_id,plotstars;
+  int level,grid,site_id,plotstars,plotapex;
   int leoflag,iodflag,iodpoint,visflag,planar,pssatno,psnr,xyzflag,pflag,graves;
   float psrmin,psrmax,rvis;
 } m;
@@ -123,15 +123,17 @@ void dec2sex_iod(double x,char *s,int type);
 void usage()
 {
   
-  printf("skymap t:c:i:R:D:hs:d:l:P:r:V:p:A:E:S:\n\n");
+  printf("skymap t:c:i:R:D:hs:d:l:P:r:V:p:A:E:S:L:B:H:\n\n");
   printf("t    date/time (yyyy-mm-ddThh:mm:ss.sss) [default: now]\n");
   printf("c    TLE catalog file [default: classfd.tle]\n");
   printf("i    satellite ID (NORAD) [default: all]\n");
-  printf("R    R.A.\n");
-  printf("D    Decl.\n");
-  printf("A    Azimuth\n");
-  printf("E    Elevation\n");
+  printf("R    R.A. [hh:mm:ss.sss]\n");
+  printf("D    Decl. [+dd:mm:ss.ss]\n");
+  printf("A    Azimuth (deg)\n");
+  printf("E    Elevation (deg)\n");
   printf("S    All night\n");
+  printf("Q    hide stars\n");
+  printf("a    show all objects from catalog (default: LEO)\n");
   printf("h    this help\n");
   printf("s    site (COSPAR)\n");
   printf("d    IOD observations\n");
@@ -140,8 +142,58 @@ void usage()
   printf("r    planar search altitude\n");
   printf("V    altitude for visibility contours\n");
   printf("p    file with xyz positions\n");
+  printf("L    manual site longitude (deg)\n");
+  printf("B    manual site latitude (deg)\n");
+  printf("H    manual site elevation (m)\n");
 
   return;
+}
+
+void interactive_usage() {
+  printf("i   Identify satellite\n");
+  printf("\n");
+  printf("f   Select satellite\n");
+  printf("a   Select on age\n");
+  printf("m   Measure cursor RA/Dec, Alt/Azi\n");
+  printf("\n");
+  printf("g   Toggle grid (on/off)\n");
+  printf("o   Toggle orientation (horizontal/equatorial)\n");
+  printf("P   Toggle planar search\n");
+  printf("p   Toggle satellite name\n");
+  printf("L   Toggle satellite selection (All, LEO, HEO/GEO, none)\n");
+  printf("v   Toggle visibility contours\n");
+  printf("F   Toggle camera configuration (data/cameras.txt)\n");
+  printf("Q   Toggle plotting stars\n");
+  printf("x   Toggle plotting apex (GEO, HEO, NOSS)\n");
+  printf("\n");
+  printf("c   Center on cursor\n");
+  printf("z   Center on zenith\n");
+  printf("n   Center on North\n");
+  printf("s   Center on South\n");
+  printf("e   Center on East\n");
+  printf("w   Center on West\n");
+  printf("\n");
+  printf("1-9 Zoom level\n");
+  printf("+   Zoom in one level\n");
+  printf("-   Zoom out one level\n");
+  printf("\n");
+  printf("l   Set integration length\n");
+  printf(">   Increase step size\n");
+  printf("<   Decrease step size\n");
+  printf("\n");
+  printf(".   Increase time by 1 step\n");
+  printf(",   Decrease time by 1 step\n");
+  printf("\n");
+  printf("I   Create IOD measurement for current time and position\n");
+  printf("TAB Cycle IOD observations\n");
+  printf("\n");
+  printf("S   Save observation position/time to schedule\n");
+  printf("E   Save observation end-time to schedule\n");
+  printf("\n");
+  printf("R   Read catalog\n");
+  printf("r   Reset satellite selection/real time\n");
+  printf("\n");
+  printf("q   quit\n");
 }
 
 void init_skymap(void)
@@ -182,6 +234,7 @@ void init_skymap(void)
   m.pflag=1;
   m.graves=0;
   m.plotstars=1;
+  m.plotapex=1;
 
   // Default settings
   strcpy(m.observer,"Unknown");
@@ -545,7 +598,9 @@ void allnight(void)
 
 int main(int argc,char *argv[])
 {
-  int i,arg=0;
+  int i,arg=0,isite=0;
+  double lat,lng;
+  float alt;
 
   // Redirect stderr
   freopen("/dev/null","w",stderr);
@@ -553,7 +608,7 @@ int main(int argc,char *argv[])
   init_skymap();
 
   // Decode options
-  while ((arg=getopt(argc,argv,"t:c:i:R:D:hs:d:l:P:r:V:p:A:E:S:Qa"))!=-1) {
+  while ((arg=getopt(argc,argv,"t:c:i:R:D:hs:d:l:P:r:V:p:A:E:S:QaL:B:H:"))!=-1) {
     switch(arg) {
 
     case 't':
@@ -567,6 +622,21 @@ int main(int argc,char *argv[])
       allnight();
       break;
 
+    case 'L':
+      lng=(double) atof(optarg);
+      isite++;
+      break;
+
+    case 'B':
+      lat=(double) atof(optarg);
+      isite++;
+      break;
+
+    case 'H':
+      alt=atof(optarg);
+      isite++;
+      break;
+      
     case 'c':
       strcpy(m.tlefile,optarg);
       break;
@@ -661,6 +731,15 @@ int main(int argc,char *argv[])
     }
   }
 
+  // Set manual site
+  if (isite==3) {
+    m.lat=lat;
+    m.lng=lng;
+    m.alt=alt/1000.0;
+    m.site_id=0;
+    strcpy(m.observer,"Manual observer");
+  }
+  
   init_plot("/xs",0,0.75);
 
   plot_skymap();
@@ -1621,7 +1700,7 @@ void skymap_plotsatellite(char *filename,int satno,double mjd0,double dt)
     if (imode==SGDP4_ERROR)
       continue;
 
-    for (flag=0,fflag=0,t=0.0;t<dt;t+=1.0) {
+    for (flag=0,fflag=0,t=0.0;t<=dt;t+=1.0) {
       mjd=mjd0+t/86400.0;
 
       // Compute apparent position
@@ -2277,11 +2356,11 @@ int plot_skymap(void)
   double ra,de,azi,alt,rx,ry;
   xyz_t sunpos;
 
-	status=read_camera(fov);
-	if (status==-1) {
-	  fov=0;
-	  status=read_camera(fov);
-	}
+  status=read_camera(fov);
+  if (status==-1) {
+    fov=0;
+    status=read_camera(fov);
+  }
 
   for (;;) {
     if (redraw>0) {
@@ -2408,17 +2487,19 @@ int plot_skymap(void)
       skymap_plotsun();
       skymap_plotmoon();
 
-      plot_apex(35786.0,0.0);
-      plot_apex(39035,63.4);
-      plot_apex(1100,63.4);
-      //      plot_apex(1100,63.4);
-      //      plot_apex(1100,123.0);
-      plot_apex(800,98.7);
-      plot_apex(1100,-63.4);
-      plot_apex(800,-98.7);
-      //      plot_apex(480.0,141.7);
-      //      plot_apex(400.0,40.0);
-      //      plot_apex(320.0,38.0);
+      if (m.plotapex==1) {
+	plot_apex(35786.0,0.0);
+	plot_apex(39035,63.4);
+	plot_apex(1100,63.4);
+	//      plot_apex(1100,63.4);
+	//      plot_apex(1100,123.0);
+	plot_apex(800,98.7);
+	plot_apex(1100,-63.4);
+	plot_apex(800,-98.7);
+	//      plot_apex(480.0,141.7);
+	//      plot_apex(400.0,40.0);
+	//      plot_apex(320.0,38.0);
+      }
       
       if (Isatsel>=0 && m.leoflag>=0)
 	skymap_plotsatellite(m.tlefile,Isatsel,m.mjd,m.length);
@@ -2456,39 +2537,7 @@ int plot_skymap(void)
     
     // Help
     if (c=='h' || c=='H') {
-      printf("q   quit\n");
-      printf("i   Identify satellite\n");
-      printf("r   Reset satellite selection/real time\n");
-      printf("f   Select satellite\n");
-      printf("l   Set integration length\n");
-      printf("m   Measure cursor RA/Dec, Alt/Azi\n");
-      printf("g   Toggle grid (on/off)\n");
-      printf("o   Toggle orientation (horizontal/equatorial)\n");
-      printf("c   Center on cursor\n");
-      printf("z   Center on zenith\n");
-      printf("n   Center on North\n");
-      printf("s   Center on South\n");
-      printf("e   Center on East\n");
-      printf("w   Center on West\n");
-      printf("1-9 Zoom level\n");
-      printf("+   Zoom in one level\n");
-      printf("-   Zoom out one level\n");
-      printf(".   Increase time by 1 step\n");
-      printf(",   Decrease time by 1 step\n");
-      printf(">   Increase step size\n");
-      printf("<   Decrease step size\n");
-      printf("I   Create IOD measurement for current time and position\n");
-      printf("P   Toggle planar search\n");
-      printf("p   Toggle satellite name\n");
-      printf("R   Read catalog\n");
-      printf("L   Toggle satellite selection (All, LEO, HEO/GEO, none)\n");
-      printf("v   Toggle visibility contours\n");
-      printf("F   Toggle camera configuration (data/cameras.txt)\n");
-      printf("TAB Cycle IOD observations\n");
-      printf("S   Save observation position/time to schedule\n");
-      printf("E   Save observation end-time to schedule\n");
-      printf("a   Select on age\n");
-      printf("Q   Toggle plotting stars\n");
+      interactive_usage();
     }
 
     // Toggle plotting stars
@@ -2500,6 +2549,15 @@ int plot_skymap(void)
       redraw=1;
     }
 
+    // Toggle plotting apex
+    if (c=='x') {
+      if (m.plotapex==1)
+	m.plotapex=0;
+      else if (m.plotapex==0)
+	m.plotapex=1;
+      redraw=1;
+    }
+    
     // Cycle IOD points
     if (c=='\t') {
       m.iodpoint++;
@@ -2893,7 +2951,7 @@ void mjd2date_iod(double mjd,char *date)
   min=fmod(x,60.);
   x=(x-min)/60.;
   hour=x;
-  fsec=1000.0*(sec-floor(sec));
+  fsec=floor(1000.0*(sec-floor(sec)));
 
   sprintf(date,"%04d%02d%02d%02d%02d%02.0f%03.0f",(int) year,(int) month,(int) day,(int) hour,(int) min,floor(sec),fsec);
 
@@ -2942,9 +3000,9 @@ void dec2sex_iod(double x,char *s,int type)
   //  deg=fmod(x,60.);
   deg=x;
   if (type==0)
-    fmin=1000.0*(min-floor(min));
+    fmin=floor(1000.0*(min-floor(min)));
   else
-    fmin=100.0*(min-floor(min));
+    fmin=floor(100.0*(min-floor(min)));
 
   if (type==0)
     sprintf(s,"%02.0f%02.0f%03.0f",deg,floor(min),fmin);
