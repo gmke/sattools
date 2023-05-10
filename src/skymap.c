@@ -49,7 +49,7 @@ struct sat {
   double x,y,z,vx,vy,vz;
   double rsun,rearth,h;
   double psun,pearth,p,phase;
-  double r,v,ra,de;
+  double r,v,ra,de,vang;
   double azi,alt,salt;
   double rx,ry;
   double rg,vg,azig,altg,rag,deg;
@@ -264,6 +264,10 @@ void init_skymap(void)
   // Read LR coefficients
   sprintf(filename,"%s/data/moonLR.dat",m.datadir);
   file=fopen(filename,"r");
+  if (file==NULL) {
+    printf("Failed to open %s\n",filename);
+    exit(1);
+  }
   for (i=0;i<60;i++)
     fscanf(file,"%d %d %d %d %lf %lf",&clr[i].nd,&clr[i].nm,&clr[i].nm1,&clr[i].nf,&clr[i].sa,&clr[i].ca);
   fclose(file);
@@ -271,6 +275,10 @@ void init_skymap(void)
   // Read B coefficients
   sprintf(filename,"%s/data/moonB.dat",m.datadir);
   file=fopen(filename,"r");
+  if (file==NULL) {
+    printf("Failed to open %s\n",filename);
+    exit(1);
+  }
   for (i=0;i<60;i++)
     fscanf(file,"%d %d %d %d %lf",&cb[i].nd,&cb[i].nm,&cb[i].nm1,&cb[i].nf,&cb[i].sa);
   fclose(file);
@@ -292,8 +300,8 @@ void get_site(int site_id)
   sprintf(filename,"%s/data/sites.txt",m.datadir);
   file=fopen(filename,"r");
   if (file==NULL) {
-    printf("File with site information not found!\n");
-    return;
+    printf("Failed to open %s\n",filename);
+    exit(1);
   }
   while (fgets(line,LIM,file)!=NULL) {
     // Skip
@@ -333,6 +341,10 @@ void read_iod(char *filename,int iobs)
   struct observation obs;
 
   file=fopen(filename,"r");
+  if (file==NULL) {
+    printf("Failed to open %s\n",filename);
+    exit(1);
+  }
   // Read data
   while (fgets(line,LIM,file)!=NULL) {
     if (strlen(line)<10)
@@ -354,7 +366,7 @@ void read_iod(char *filename,int iobs)
   m.ra0=obs.ra;
   m.de0=obs.de;
   strcpy(m.orientation,"equatorial");
-  m.level=4;
+  m.level=6;
 
   return;
 }
@@ -417,6 +429,15 @@ void plot_xyz(double mjd0,char *filename)
   char line[LIM];
 
   file=fopen(filename,"r");
+  if (file==NULL) {
+    printf("Failed to open %s\n",filename);
+    exit(1);
+  }
+  
+  if (file==NULL) {
+    printf("%s not found!\n",filename);
+    return;
+  }
   while (fgetline(file,line,LIM)>0) {
     sscanf(line,"%lf %lf %lf %lf",&mjd,&satpos.x,&satpos.y,&satpos.z);
     if (mjd>mjd0)
@@ -603,7 +624,7 @@ int main(int argc,char *argv[])
   float alt;
 
   // Redirect stderr
-  freopen("/dev/null","w",stderr);
+  freopen("/tmp/stderr.txt","w",stderr);
 
   init_skymap();
 
@@ -647,6 +668,7 @@ int main(int argc,char *argv[])
       m.leoflag=0;
       read_iod(m.iodfile,m.iodpoint);
       m.iodflag=1;
+      m.level=6;
       break;
 
     case 'l':
@@ -1432,8 +1454,8 @@ void skymap_plotconstellations(char *filename)
   // Loop over file
   file=fopen(filename,"r");
   if (file==NULL) {
-    printf("Const file not found\n");
-    exit(1);
+    printf("%s not found!\n",filename);
+    return;
   }
     
   for (i=0;fgetline(file,line,LIM)>0;i++) {
@@ -1664,24 +1686,26 @@ void skymap_plotsatellite(char *filename,int satno,double mjd0,double dt)
   char norad[7],satname[30],date[24];;
   float isch;
   float rsun,rearth,psun,pearth,p;
-  int priority[]={24680,28888,15071,26934,37348,5678,5679,5680,5681,5682,8818,8835,8836,8884,10502,10529,10544,10594,11720,11731,11732,11745,13791,13844,13845,13874,39232};
+  int priority[]={28888,37348,39232,43941,48247,53883};
   char type[8];
 
   // Open TLE file
   fp=fopen(filename,"rb");
-  if (fp==NULL)
-    fatal_error("File open failed for reading %s\n",filename);
+  if (fp==NULL) {
+    printf("Failed to open TLE catalog %s\n",filename);
+    exit(1);
+  }
 
   // Read TLEs
   while (read_twoline(fp,satno,&orb)==0) {
     Isat=orb.satno;
     imode=init_sgdp4(&orb);
 
-    if (orb.rev>=10.0)
+    if (orb.rev>=8.0)
       strcpy(type,"LEO");
-    else if (orb.rev<10.0 && orb.eqinc*R2D>50.0 && orb.ecc>0.5)
+    else if (orb.rev<8.0 && orb.eqinc*R2D>50.0 && orb.ecc>0.5)
       strcpy(type,"HEO");
-    else if (orb.rev<10.0 && orb.eqinc*R2D<=50.0 && orb.ecc>0.5)
+    else if (orb.rev<8.0 && orb.eqinc*R2D<=50.0 && orb.ecc>0.5)
       strcpy(type,"GTO");
     else 
       strcpy(type,"GEO");
@@ -1706,6 +1730,10 @@ void skymap_plotsatellite(char *filename,int satno,double mjd0,double dt)
       // Compute apparent position
       s=apparent_position(mjd);
 
+      // Skip bogus positions
+      if (s.h>300000)
+	continue;
+      
       if (m.agelimit>0 && s.age<m.agelimit)
 	continue;
 
@@ -1743,7 +1771,7 @@ void skymap_plotsatellite(char *filename,int satno,double mjd0,double dt)
       // In field of view
       if (fabs(x)<m.fw && fabs(y)<m.fh && fflag==0) {
 	mjd2date(mjd,date);
-	printf("%.19s %05ld %6.1f %7.1f d %9.2f km\n",date,Isat,s.mag,s.age,s.r);
+	printf("%.19s %05ld %6.1f %7.1f d %9.2f km %6.2f deg\n",date,Isat,s.mag,s.age,s.r,s.phase);
 	fflag=1;
       }
 
@@ -1846,11 +1874,11 @@ void nfd_now(char *s)
 // nfd2mjd
 double nfd2mjd(char *date)
 {
-  int year,month,day,hour,min,sec;
-  double mjd,dday;
+  int year,month,day,hour,min;
+  double mjd,dday,sec;
 
-  sscanf(date,"%04d-%02d-%02dT%02d:%02d:%02d",&year,&month,&day,&hour,&min,&sec);
-  dday=day+hour/24.0+min/1440.0+sec/86400.0;
+  sscanf(date,"%04d-%02d-%02dT%02d:%02d:%lf",&year,&month,&day,&hour,&min,&sec);
+  dday=(double) day+(double) hour/24.0+(double) min/1440.0+sec/86400.0;
 
   mjd=date2mjd(year,month,dday);
 
@@ -1863,7 +1891,7 @@ struct sat apparent_position(double mjd)
 {
   struct sat s;
   double jd,rsun,rearth,rsat;
-  double dx,dy,dz,dvx,dvy,dvz;
+  double dx,dy,dz,dvx,dvy,dvz,vtot;
   xyz_t satpos,obspos,obsvel,satvel,sunpos,grvpos,grvvel;
   double sra,sde,azi;
 
@@ -1928,6 +1956,10 @@ struct sat apparent_position(double mjd)
   s.ra=modulo(atan2(dy,dx)*R2D,360.0);
   s.de=asin(dz/s.r)*R2D;
 
+  // Angular velocity
+  vtot=sqrt(dvx*dvx+dvy*dvy+dvz*dvz);
+  s.vang=sqrt(vtot*vtot-s.v*s.v)/s.r*R2D;
+  
   // Phase
   s.phase=acos(((obspos.x-satpos.x)*(sunpos.x-satpos.x)+(obspos.y-satpos.y)*(sunpos.y-satpos.y)+(obspos.z-satpos.z)*(sunpos.z-satpos.z))/(rsun*s.r))*R2D;
 	  
@@ -1995,8 +2027,10 @@ void planar_search(char *filename,int satno,float rmin,float rmax,int nr,int gra
 
   // Open TLE file
   fp=fopen(filename,"rb");
-  if (fp==NULL)
-    fatal_error("File open failed for reading %s\n",filename);
+  if (fp==NULL) {
+    printf("Failed to open TLE catalog %s\n",filename);
+    exit(1);
+  }
 
   // Read TLEs
   while (read_twoline(fp,satno,&orb)==0) {
@@ -2162,9 +2196,10 @@ int print_tle(char *filename,int satno)
 
   // Open TLE file
   fp=fopen(filename,"rb");
-  if (fp==NULL)
-    fatal_error("File open failed for reading %s\n",filename);
-
+  if (fp==NULL) {
+    printf("Failed to open TLE catalog %s\n",filename);
+    exit(1);
+  }
   // Read TLEs
   while (fgetline(fp,line,LIM)>0) {
     sscanf(line+2,"%ld",&Isat);
@@ -2198,8 +2233,10 @@ long identify_satellite(char *filename,int satno,double mjd,float rx,float ry)
 
   // Open TLE file
   fp=fopen(filename,"rb");
-  if (fp==NULL)
-    fatal_error("File open failed for reading %s\n",filename);
+  if (fp==NULL) {
+    printf("Failed to open TLE catalog %s\n",filename);
+    exit(1);
+  }
 
   // Read TLEs
   while (read_twoline(fp,satno,&orb)==0) {
@@ -2246,7 +2283,7 @@ long identify_satellite(char *filename,int satno,double mjd,float rx,float ry)
   printf("R.A.: %s  Decl.: %s (J2000)\n",sra,sde);
   printf("Azi.: %.1f Alt.: %.1f\n\n",modulo(smin.azi-180.0,360.0),smin.alt);
 
-  printf("Phase: %.2f\nMagnitude: %.2f\n",smin.phase,smin.mag);
+  printf("Phase: %.2f\nMagnitude: %.2f\nAngular velocity: %.4f (deg/s)\n",smin.phase,smin.mag,smin.vang);
   
   return Isatmin;
 }
@@ -2318,7 +2355,7 @@ int read_camera(int no)
   sprintf(filename,"%s/data/cameras.txt",m.datadir);
   file=fopen(filename,"r");
   if (file==NULL) {
-    printf("File with camera information not found!\n");
+    printf("Failed to open %s\n",filename);
     return -1;
   }
   while (fgets(line,LIM,file)!=NULL) {
@@ -3226,6 +3263,11 @@ void plot_iod(char *filename)
   cpgsci(2);
   cpgsch(0.8);
   file=fopen(filename,"r");
+  if (file==NULL) {
+    printf("Failed to open %s\n",filename);
+    return;
+  }
+  
   // Read data
   while (fgets(line,LIM,file)!=NULL) {
     if (strstr(line,"#")==NULL) {

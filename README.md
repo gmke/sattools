@@ -30,13 +30,14 @@ On Debian/Ubuntu, these can be installed with `sudo apt install git make dos2uni
 ```
 wget -c ftp://ftp.eso.org/pub/qfits/qfits-5.2.0.tar.gz
 gunzip -c qfits-5.2.0.tar.gz | tar xvf -
-qfits-5.2.0
+cd qfits-5.2.0
 chmod +w src/xmemory.c
 sed -i -e "s/swapfd = open(fname, O_RDWR | O_CREAT);/swapfd = open(fname, O_RDWR | O_CREAT, 0644);/g" src/xmemory.c
 ./configure
 make
 sudo make install
 ```
+The `qfits` code can also be obtained from https://spacecruft.org/spacecruft/qfits
 
 **Clone and install `sattools`**
 
@@ -57,7 +58,7 @@ You will need to set the following environment variables to run **sattools**. Ad
 
 **Final configuration steps**
 
-Add the `sattools` directory with executables to your `PATH` variable. On Ubuntu this is `.profile` and should be of the form `PATH=<path_to_sattools>:$PATH`.
+Add the `sattools` directory with executables to your `PATH` variable. On Ubuntu this is `.profile` and should be of the form `PATH=<path_to_sattools>/bin:$PATH`.
 
 Then reload the `.profile` file with `source $HOME/.profile`.
 
